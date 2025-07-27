@@ -1,1 +1,1 @@
-I AM THINKING
+print("I AM THINKING")
