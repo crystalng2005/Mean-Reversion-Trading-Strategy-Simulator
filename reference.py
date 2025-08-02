@@ -146,3 +146,7 @@ print(f"Industry: {info['industry']}")
 print(f"Market Cap: {info['marketCap']}")
 print(f"P/E Ratio: {info['trailingPE']}")
 
+# Extra notes:
+# Algorithm doesn't work in black swan cases and trending markets
+# Can fix this using a stop loss but this would impair the effectiveness
+
