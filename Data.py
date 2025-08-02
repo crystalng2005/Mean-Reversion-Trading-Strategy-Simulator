@@ -5,7 +5,7 @@ import sklearn as sk
 import pandas as pd
 import datetime
 
-# download historical data for stock
+# download historical data for stock via yfinance
 # stock name/start date/end date(XXXX-XX-XX)
 stocks = 'AAPL'
 data = yf.download(stocks, start='2023-01-01', end='2023-12-31')
