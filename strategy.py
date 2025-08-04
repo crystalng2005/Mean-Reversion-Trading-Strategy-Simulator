@@ -5,7 +5,7 @@ import numpy as np
 
 # Function to donwload the data of a
 def downloadData(ticker, startDate, endDate):
-    data = yf.download(ticker, start=startDate, end=endDate)
+    data = yf.download(ticker, start=startDate, end=endDate, multi_level_index=False)
     return data
 
 apple = downloadData('AAPL', '2018-01-01', '2025-01-01')
@@ -87,6 +87,40 @@ def signalResults(data):
     return df
 
 # print(improvedData['rsi'] < 30)
-print(improvedData['Close'] < improvedData['LowerBand'])
-# print(signalResults(improvedData))
+# print(improvedData)
+# print(improvedData['Close'] < improvedData['LowerBand'])
+print(signalResults(improvedData))
+
+def plotResultsSignals(data, startDate=None, endDate=None, window=20):
+    if startDate and endDate:
+        plotData = data.loc[startDate:endDate]
+    else:
+        plotData = data
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(plotData['Close'], label='Closing Price', color='blue')
+    plt.plot(plotData['SMA'], label=f'SMA {window} days', color='green')
+    plt.plot(plotData['UpperBand'], label='Upper Band', color='red', linestyle='--')
+    plt.plot(plotData['LowerBand'], label='Lower Band', color='red', linestyle='--')
+
+    buySignals = data[data['signal'] == 1]
+    sellSignals = data[data['signal'] == -1]
+
+    plt.scatter(buySignals.index, buySignals['Close'], color='green', marker='^', s=100, label='Buy Signal')
+    plt.scatter(sellSignals.index, sellSignals['Close'], color='green', marker='v', s=100, label='Sell Signal')
+
+    plt.legend()
+    plt.title('Mean Reversion Indicators with Trading Signals')
+    plt.xlabel('Date')
+    plt.ylabel('Price')
+    plt.grid()
+    plt.show()
+
+plotResultsSignals(signalResults(improvedData))
+
+
+
+
+
+
 
