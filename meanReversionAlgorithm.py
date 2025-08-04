@@ -3,7 +3,7 @@
 import yfinance as yf
 import matplotlib.pyplot as plt
 import math
-from ta.momentum import RSIIndicator  # or whichever TA library you're using
+from ta.momentum import RSIIndicator
 import numpy as np
 
 data = yf.download('AAPL', start='2022-01-01', end='2023-01-01').copy()
@@ -35,7 +35,7 @@ data = data.reset_index(drop=True)
 #     choicelist=['Buy', 'Sell'],  # Corresponding choices
 #     default='Hold'  # Default value
 # )
-
+#
 # data['signal'] = np.where((data['rsi'] < 30) & (data['close'] < data['lowerBound']), 1, np.nan)
 #
 # data['signal'] = np.where((data['rsi'] > 70) & (data['close'] < data['lowerBound']), -1, data['signal'])
