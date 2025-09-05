@@ -36,6 +36,7 @@ To perform backtesting with Backtesting.py, you will need to import the Backtest
 the strategy class, set initial cash, and the trade commission value.
 """
 import yfinance as yf
+import pandas as pd # I added this -Crystal
 
 # obtain the data for the HE asset.
 

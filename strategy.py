@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 from ta.momentum import RSIIndicator
 import numpy as np
+from twisted.python.formmethod import positiveInt
+
 
 # Function to donwload the data of a
 def downloadData(ticker, startDate, endDate):
@@ -22,6 +24,8 @@ def indicators(data):
     df['STD'] = df['Close'].rolling(window=window).std()
     df['UpperBand'] = df['SMA'] + (df['STD'] * 2)
     df['LowerBand'] = df['SMA'] - (df['STD'] * 2)
+
+    df['z'] = (df['Close'] - df['SMA']) / df['STD']
 
     df['rsi'] = RSIIndicator(df['Close'].squeeze(), window=14).rsi()
     # There is another way to manually calculate the RSI
@@ -89,7 +93,26 @@ def signalResults(data):
 # print(improvedData['rsi'] < 30)
 # print(improvedData)
 # print(improvedData['Close'] < improvedData['LowerBand'])
-print(signalResults(improvedData))
+
+def makeSignals(df, zEntry=-2.0, zExit=-0.5, useRSI=True):
+    signal = df.copy()
+
+    longEntry = (signal['z'] <= zEntry)
+
+    if useRSI:
+        longEntry &= (signal['rsi'] > zEntry)
+
+    longExit = (signal['z'] >= zExit) | (signal['Close'] >= signal['SMA'])
+
+    signal['entry'] = longEntry.shift(1).fillna(False)
+    signal['exit'] = longExit.shift(1).fillna(False)
+    return signal
+
+
+
+# print(signalResults(improvedData))
+print(makeSignals(improvedData))
+
 
 def plotResultsSignals(data, startDate=None, endDate=None, window=20):
     if startDate and endDate:
@@ -103,20 +126,23 @@ def plotResultsSignals(data, startDate=None, endDate=None, window=20):
     plt.plot(plotData['UpperBand'], label='Upper Band', color='red', linestyle='--', alpha=0.7)
     plt.plot(plotData['LowerBand'], label='Lower Band', color='red', linestyle='--', alpha=0.7)
 
-    buySignals = plotData[plotData['signal'] == 1]
-    sellSignals = plotData[plotData['signal'] == -1]
+    # buySignals = plotData[plotData['signal'] == 1]
+    # sellSignals = plotData[plotData['signal'] == -1]
 
-    plt.scatter(buySignals.index, buySignals['Close'], color='green', marker='^', s=100, label='Buy Signal')
-    plt.scatter(sellSignals.index, sellSignals['Close'], color='red', marker='v', s=100, label='Sell Signal')
+    buySignals = plotData[plotData['entry']]
+    sellSignals = plotData[plotData['exit']]
+
+    plt.scatter(buySignals.index, buySignals['Close'], color='green', marker='^', s=100, label='Entry', zorder=3)
+    plt.scatter(sellSignals.index, sellSignals['Close'], color='red', marker='v', s=100, label='Exit', zorder=3)
 
     plt.legend()
-    plt.title('Mean Reversion Indicators with Trading Signals')
+    plt.title('Mean Reversion (Bollinger + RSI) with Entries/Exits')
     # plt.xlabel('Date')
     # plt.ylabel('Price')
     plt.grid()
     plt.show()
 
-plotResultsSignals(signalResults(improvedData))
+plotResultsSignals(makeSignals(improvedData))
 
 def backtestDataframe(data):
     position = 0
@@ -159,12 +185,58 @@ def backtestDataframe(data):
 
     return trades
 
-signals = signalResults(improvedData)
-tradeHistory = backtestDataframe(signals)
 
-print(f"Buy signals: {sum(signals['signal'] == 1)}")
-print(f"Sell signals: {sum(signals['signal'] == -1)}")
 
+# signals = signalResults(improvedData)
+# tradeHistory = backtestDataframe(signals)
+#
+# print(f"Buy signals: {sum(signals['signal'] == 1)}")
+# print(f"Sell signals: {sum(signals['signal'] == -1)}")
+
+
+def backTestLongOnly(sig, costBPS=1):
+    df = sig.copy()
+    position = 0
+    buyPX = None
+    trades = []
+
+    for t, row in df.iterrows():
+        if position == 0 and row['entry']:
+            buyPX = row['Close']
+            position = 1
+            trades.append({'type': 'buy', 'date': t, 'price': buyPX})
+            print(f"Buying at {buyPX:.2f} on {t.date()}") # Figure out what .2f means
+
+        elif position == 1 and row['exit']:
+            sellPX = row['Close']
+            gross = sellPX / buyPX - 1
+            net = gross - 2 * costBPS / 10000
+            trades.append({'type': 'sell', 'date': t, 'price': sellPX, 'return%': net * 100})
+            print(f"Selling at {sellPX:.2f} on {t.date()} | Return: {net*100:.2f}%")
+            position = 0
+            buyPX = None
+
+    if position == 1:
+        t = df.index[-1]
+        sellPX = df['Close'].iloc[-1]
+        gross = sellPX / buyPX - 1
+        net = gross - 2 * costBPS / 10000
+        trades.append({'type': 'sell', 'date': t, 'price': sellPX, 'return%': net * 100})
+        print(f"Closing open long at end: {sellPX:.2f} on {t.date()} | Return: {net*100:.2f}%")
+
+    rets = [x['return%'] for x in trades if x['type'] == 'sell']
+    if rets:
+        avg = np.mean(rets)
+        win = np.mean([r > 0 for r in rets])
+        print(f"\nBacktest Results:")
+        print(f"Trades: {len(rets)} | Avg Return: {avg:.2f}% | Win Rate: {win:.2%}")
+    return trades
+
+signals = makeSignals(improvedData)
+
+tradeHistory = backTestLongOnly(signals, costBPS=1)
+
+print(f"Entries: {signals['entry'].sum()} | Exits: {signals['exit'].sum()}")
 
 
 
