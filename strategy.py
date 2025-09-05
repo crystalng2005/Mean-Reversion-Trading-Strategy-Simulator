@@ -111,7 +111,8 @@ def makeSignals(df, zEntry=-2.0, zExit=-0.5, useRSI=True):
 
 
 # print(signalResults(improvedData))
-print(makeSignals(improvedData))
+signals = makeSignals(improvedData)
+print(signals)
 
 
 def plotResultsSignals(data, startDate=None, endDate=None, window=20):
@@ -142,7 +143,7 @@ def plotResultsSignals(data, startDate=None, endDate=None, window=20):
     plt.grid()
     plt.show()
 
-plotResultsSignals(makeSignals(improvedData))
+plotResultsSignals(signals)
 
 def backtestDataframe(data):
     position = 0
@@ -231,8 +232,6 @@ def backTestLongOnly(sig, costBPS=1):
         print(f"\nBacktest Results:")
         print(f"Trades: {len(rets)} | Avg Return: {avg:.2f}% | Win Rate: {win:.2%}")
     return trades
-
-signals = makeSignals(improvedData)
 
 tradeHistory = backTestLongOnly(signals, costBPS=1)
 
