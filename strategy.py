@@ -2,8 +2,7 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 from ta.momentum import RSIIndicator
 import numpy as np
-from twisted.python.formmethod import positiveInt
-
+import pandas as pd
 
 # Function to donwload the data of a
 def downloadData(ticker, startDate, endDate):
@@ -72,6 +71,7 @@ def plotRSI(data, startDate=None, endDate=None, window=20):
 plotResults(improvedData)
 plotRSI(improvedData)
 
+# Not used anymore
 def signalResults(data):
     df = data.copy()
 
@@ -100,7 +100,7 @@ def makeSignals(df, zEntry=-2.0, zExit=-0.5, useRSI=True):
     longEntry = (signal['z'] <= zEntry)
 
     if useRSI:
-        longEntry &= (signal['rsi'] > zEntry)
+        longEntry &= (signal['rsi'] < 30)
 
     longExit = (signal['z'] >= zExit) | (signal['Close'] >= signal['SMA'])
 
@@ -108,11 +108,86 @@ def makeSignals(df, zEntry=-2.0, zExit=-0.5, useRSI=True):
     signal['exit'] = longExit.shift(1).fillna(False)
     return signal
 
+def positionFromSignals(sig: pd.DataFrame):
+    change = np.where(sig['exit'], 0, np.where(sig['entry'], 1, np.nan))
+    pos = pd.Series(change, index=sig.index).ffill().fillna(0)
+    return pos.astype(int)
 
+def equityCurveAndMetrics(sig: pd.DataFrame, costBPS: float = 1.0, rfAnnual: float = 0.0, periods: int = 252):
+    # Figure out why the above has : and stuff afterwards -- what is the purpopse of this
+    # Python formatting? I'm curious
+    pos = positionFromSignals(sig)
+
+    rawRet = sig['Close'].pct_change().fillna(0.0)
+
+    stratGross = pos.shift(1).fillna(0) * rawRet
+
+    turnover = pos.diff().abs().fillna(0)
+    costs = turnover * (costBPS / 10000.0)
+
+    dailyRet = stratGross - costs
+
+    equity = (1.0 + dailyRet).cumprod()
+
+    n = len(dailyRet)
+    annFactor = np.sqrt(periods)
+    rfDaily = rfAnnual / periods
+
+    meanExcess = (dailyRet - rfDaily).mean()
+    vol = dailyRet.std(ddof=0)
+    sharpe = (meanExcess / vol * annFactor) if vol > 0 else np.nan
+
+    rollMax = equity.cummax()
+    drawdown = equity / rollMax - 1.0
+    maxDD = -drawdown.min()
+
+    years = n / periods if periods > 0 else np.nan
+    cagr = (equity.iloc[-1] ** (1 / years) - 1) if years and years > 0 else np.nan
+
+    exposure = pos.mean()
+
+    metrics = {
+        "CAGR": cagr,
+        "Sharpe": sharpe,
+        "MaxDD": maxDD,
+        "AnnVol": vol * annFactor,
+        "Exposure": exposure,
+        "Trades": int(sig['entry'].sum())
+    }
+
+    return equity, dailyRet, metrics
+
+def plotEquityCurve(equity: pd.Series, title: str = "Strategy Equity Curve"):
+    plt.figure(figsize=(12, 6))
+    plt.plot(equity, label='Equity')
+    plt.title(title)
+    plt.grid()
+    plt.legend()
+    plt.show()
+
+def plotDrawdown(equity: pd.Series, title: str = "Drawdown"):
+    dd = equity / equity.cummax() - 1.0
+    plt.figure(figsize=(12, 3.5))
+    plt.plot(dd, label='Drawdown')
+    plt.title(title)
+    plt.grid()
+    plt.legend()
+    plt.show()
 
 # print(signalResults(improvedData))
 signals = makeSignals(improvedData)
 print(signals)
+
+equity, dailyRet, metrics = equityCurveAndMetrics(signals, costBPS=1, rfAnnual=0.0, periods=252)
+
+plotEquityCurve(equity)
+plotDrawdown(equity)
+
+print(
+    f"CAGR: {metrics['CAGR']:.2%} | Sharpe: {metrics['Sharpe']:.2f} | "
+    f"MaxDD: {metrics['MaxDD']:.2%} | AnnVol: {metrics['AnnVol']:.2%} | "
+    f"Exposure: {metrics['Exposure']:.2%} | Trades: {metrics['Trades']}"
+)
 
 
 def plotResultsSignals(data, startDate=None, endDate=None, window=20):
@@ -145,6 +220,7 @@ def plotResultsSignals(data, startDate=None, endDate=None, window=20):
 
 plotResultsSignals(signals)
 
+# Not used anymore
 def backtestDataframe(data):
     position = 0
     percentageChange = []
