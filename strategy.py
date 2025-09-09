@@ -12,24 +12,16 @@ def downloadData(ticker, startDate, endDate):
 apple = downloadData('MSFT', '2018-01-01', '2025-01-01')
 print(apple)
 
-def indicators(data):
-    window = 20
-
+def indicators(data, maWindow=20, bandK=2, rsiLen=14):
     df = data[['Close']].copy()
-
-    df['SMA'] = df['Close'].rolling(window=window).mean()
-
-    # Bollinger Bands
-    df['STD'] = df['Close'].rolling(window=window).std()
-    df['UpperBand'] = df['SMA'] + (df['STD'] * 2)
-    df['LowerBand'] = df['SMA'] - (df['STD'] * 2)
-
-    df['z'] = (df['Close'] - df['SMA']) / df['STD']
-
-    df['rsi'] = RSIIndicator(df['Close'].squeeze(), window=14).rsi()
-    # There is another way to manually calculate the RSI
-
-    return df
+    df['SMA'] = df['Close'].rolling(window=maWindow).mean()
+    std = df['Close'].rolling(window=maWindow).std().replace(0, np.nan)
+    df['STD'] = std
+    df['UpperBand'] = df['SMA'] + (bandK * std)
+    df['LowerBand'] = df['SMA'] - (bandK * std)
+    df['z'] = (df['Close'] - df['SMA']) / std
+    df['rsi'] = RSIIndicator(df['Close'].squeeze(), window=rsiLen).rsi()
+    return df.dropna()
 
 improvedData = indicators(apple)
 print(improvedData)
@@ -313,10 +305,111 @@ tradeHistory = backTestLongOnly(signals, costBPS=1)
 
 print(f"Entries: {signals['entry'].sum()} | Exits: {signals['exit'].sum()}")
 
+'''
+Concrete “next commits” (copy this plan into your TODO)
 
+Add buy-and-hold benchmark and print both metrics side-by-side.
 
+Add cost_sweep() → dataframe of Sharpe/CAGR vs cost_bps.
 
+Implement grid_search() over (window, zEntry, zExit, useRSI) with a heatmap.
 
+Chronological train/valid/test split + walk-forward option.
 
+Batch runner over a ticker list; aggregate median metrics.
 
+Add pytest with 4 basic tests + GitHub Actions.
 
+Wrap into a CLI; push a README with plots and “How to run”.
+'''
+
+def buyAndHoldEquity(close: pd.Series):
+    ret = close.pct_change().fillna(0.0)
+    eq = (1.0 + ret).cumprod()
+    return eq, ret
+
+def plotEquityWithBenchmark(strategyEQ: pd.Series, close: pd.Series, title="Equity vs Buy & Hold"):
+    bhEQ, _ = buyAndHoldEquity(close)
+
+    s = strategyEQ / strategyEQ.iloc[0]
+    b = bhEQ / bhEQ.iloc[0]
+    plt.figure(figsize=(12, 6))
+    plt.plot(s, label="Strategy")
+    plt.plot(b, label="Buy & Hold")
+    plt.title(title)
+    plt.grid()
+    plt.legend()
+    plt.show()
+
+def metricsFromReturns(dailyRet: pd.Series, rfAnnual: float = 0.0, periods: int = 252):
+    rfDaily = rfAnnual / periods
+    annFactor = np.sqrt(periods)
+    n = len(dailyRet)
+    eq = (1.0 + dailyRet.fillna(0.0)).cumprod()
+    years = n/periods if periods>0 else np.nan
+    cagr = (eq.iloc[-1] ** (1/years) - 1) if years and years>0 else np.nan
+    vol = dailyRet.std(ddof=0)
+    sharpe = ((dailyRet - rfDaily).mean() / vol*annFactor) if vol>0 else np.nan
+    dd = eq/eq.cummax() - 1.0
+    maxdd = -dd.min()
+    return {"CAGR": cagr, "Sharpe": sharpe, "MaxDD": maxdd, "AnnVol": vol*annFactor}
+
+bhEq, bhRet = buyAndHoldEquity(improvedData['Close'])
+bhMetrics = metricsFromReturns(bhRet)
+
+plotEquityWithBenchmark(equity, improvedData['Close'])
+print("Strategy:", {k: (f"{v:.2%}" if 'CAGR' in k or 'MaxDD' in k or 'AnnVol' in k else f"{v:.2f}") for k,v in metrics.items() if k in ['CAGR','Sharpe','MaxDD','AnnVol']})
+print("Buy&Hold:", {k: (f"{v:.2%}" if 'CAGR' in k or 'MaxDD' in k or 'AnnVol' in k else f"{v:.2f}") for k,v in bhMetrics.items()})
+# Figure out what are these 2 print statements because they look so complicated
+
+def costSweep(improvedDF: pd.DataFrame, zEntry=-2.0, zExit=-0.5, useRSI=True, costGrid=(0, 1, 2, 5, 10)):
+    rows = []
+    base = improvedDF
+    for c in costGrid:
+        sig = makeSignals(base, zEntry=zEntry, zExit=zExit, useRSI=useRSI)
+        eq, dr, m = equityCurveAndMetrics(sig, costBPS=c)
+        rows.append({"costBPS": c, **m})
+    df = pd.DataFrame(rows)
+    print(df[['costBPS', 'CAGR', 'Sharpe', 'MaxDD', 'AnnVol']])
+    return df
+
+_ = costSweep(improvedData, zEntry=-2.0, zExit=-0.5, useRSI=True, costGrid=(0, 1, 2, 5, 10))
+
+def gridSearch(rawPrices: pd.DataFrame,
+               maWindows=(15, 20, 30),
+               zEntries=(-1.5, -2.0, -2.5),
+               zExits=(-0.25, -0.5, -0.75),
+               useRSI=(True, False),
+               costBPS=1):
+    rows = []
+    for w in maWindows:
+        ind = indicators(rawPrices, maWindow=w)
+        for ze in zEntries:
+            for zx in zExits:
+                for ur in useRSI:
+                    sig = makeSignals(ind, zEntry=ze, zExit=zx, useRSI=ur)
+                    eq, dr, m = equityCurveAndMetrics(sig, costBPS=costBPS)
+                    rows.append({
+                        "maWindow": w, "zEntry": ze, "zExit": zx, "useRSI": ur, **m
+                    })
+    res = pd.DataFrame(rows).sort_values(["Sharpe", "CAGR"], ascending=[False, False])
+    print(res.head(10)[["maWindow", "zEntry", "zExit", "useRSI", "Sharpe", "CAGR", "MaxDD", "Exposure"]])
+    return res
+
+gs = gridSearch(apple)
+
+def batchRun(tickers, start="2018-01-01", end="2025-01-01", maWindow=20, zEntry=-2.0, zExit=-0.5, useRSI=True, costBPS=1):
+    out = []
+    for tk in tickers:
+        px = yf.download(tk, start=start, end=end, multi_level_index=False)
+        ind = indicators(px, maWindow=maWindow)
+        sig = makeSignals(ind, zEntry=zEntry, zExit=zExit, useRSI=useRSI)
+        _, _, m = equityCurveAndMetrics(sig, costBPS=costBPS)
+        # Figure out the purpose of _, I mean why?
+        out.append({"ticker": tk, **m})
+    df = pd.DataFrame(out).sort_values("Sharpe", ascending=False)
+    print(df[["ticker", "Sharpe", "MaxDD", "Exposure"]])
+    print("\nMedian Sharpe:", df["Sharpe"].median())
+    return df
+
+_ = batchRun(["AAPL","MSFT","AMZN","GOOGL","META","NVDA","KO","PEP","JPM","XOM"])
