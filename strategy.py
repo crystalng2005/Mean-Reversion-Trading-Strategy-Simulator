@@ -15,7 +15,7 @@ import pandas as pd
 # Function to donwload the data of a stock
 # Multi_level_index = False: Single-level column index (keeps things tidy)
 def downloadData(ticker, startDate, endDate):
-    data = yf.download(ticker, start=startDate, end=endDate, multi_level_index=False)
+    data = yf.download(ticker, start=startDate, end=endDate, auto_adjust=True, multi_level_index=False)
     return data
 
 # Downloaded data includes:
@@ -101,15 +101,15 @@ def makeSignals(df, zEntry=-2.0, zExit=-0.5, useRSI=True):
     signal = df.copy()
 
     # Entry condition: is today's z=score at/under the entry threshold?
-    longEntry = (signal['z'] <= zEntry)
+    longEntry = (signal['z'] <= zEntry) & (signal['z'].shift(1) > zEntry)
 
-    # Optional filter: only eneter when RSI is oversold too
+    # Optional filter: only enter when RSI is oversold too
     #  Tightens entries: fewer trades and higher selectivity
     if useRSI:
         longEntry &= (signal['rsi'] < 30)
 
     # Exit condition: cross up through the zExit of today and ystd
-    # To take profit near the mear
+    # To take profit near the mean
     # Change condition here for fewer restraints
     longExit = (signal['z'] >= zExit) & (signal['z'].shift(1) < zExit)
 
@@ -142,7 +142,7 @@ def positionFromSignals(sig: pd.DataFrame):
 
 '''
 Note to self:
-Review this calculcations and understand it further.
+Review this calculations and understand it further.
 '''
 
 # Function that computes the equity curve and its metrics
@@ -210,7 +210,7 @@ def equityCurveAndMetrics(sig: pd.DataFrame, costBPS: float = 1.0, rfAnnual: flo
         "MaxDD": maxDD,
         "AnnVol": vol * annFactor,
         "Exposure": exposure,
-        "Trades": int(sig['entry'].sum()) # Counts entry events after shift
+        "Trades": int((pos.diff().gt(0)).sum()) # Counts entry events after shift
     }
 
     # Equity curve, daily returns and metrics dictionary
@@ -507,7 +507,10 @@ def batchRun(tickers, start="2018-01-01", end="2025-01-01", maWindow=20, zEntry=
     for tk in tickers:
 
         # Downaload data for each ticker
-        px = yf.download(tk, start=start, end=end, multi_level_index=False)
+        px = yf.download(tk, start=start, end=end, auto_adjust=True, multi_level_index=False)
+        # Skip emties
+        if px.empty:
+            continue
         # Build indicators for each ticker
         ind = indicators(px, maWindow=maWindow)
         # Build boolean signals (entry/exit) for each ticker
