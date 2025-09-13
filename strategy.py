@@ -116,8 +116,8 @@ def makeSignals(df, zEntry=-2.0, zExit=-0.5, useRSI=True):
     # Shift one bar forward to prevent look ahead
     # Fill warm-up NaNs with False
     # Output is a boolean column
-    signal['entry'] = longEntry.shift(1).fillna(False)
-    signal['exit'] = longExit.shift(1).fillna(False)
+    signal['entry'] = longEntry.fillna(False)
+    signal['exit'] = longExit.fillna(False)
 
     # Return the data frame with entry and exit columns
     return signal
